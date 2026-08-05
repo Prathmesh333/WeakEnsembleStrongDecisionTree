@@ -21,6 +21,10 @@ training:
   patience: 5
   label_smoothing: 0.0
   device: auto
+  scheduler: plateau
+  mixed_precision: false
+  optimizer: adamw
+  momentum: 0.9
 
 tree:
   depths: [3, 5, 7, null]

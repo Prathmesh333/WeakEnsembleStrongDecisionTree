@@ -37,6 +37,8 @@ def _epoch(
     criterion: nn.Module,
     device: torch.device,
     optimizer: torch.optim.Optimizer | None = None,
+    scaler: Any | None = None,
+    use_mixed_precision: bool = False,
 ) -> tuple[float, float]:
     training = optimizer is not None
     model.train(training)
@@ -50,11 +52,21 @@ def _epoch(
             targets = targets.to(device, non_blocking=True)
             if training:
                 optimizer.zero_grad(set_to_none=True)
-            logits = model(inputs)
-            loss = criterion(logits, targets)
+            with torch.autocast(
+                device_type=device.type,
+                dtype=torch.float16,
+                enabled=use_mixed_precision,
+            ):
+                logits = model(inputs)
+                loss = criterion(logits, targets)
             if training:
-                loss.backward()
-                optimizer.step()
+                if scaler is not None and scaler.is_enabled():
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    optimizer.step()
             batch_size = targets.size(0)
             total_examples += batch_size
             total_loss += float(loss.item()) * batch_size
@@ -72,12 +84,31 @@ def train_model(
 ) -> TrainingResult:
     model.to(device)
     criterion = nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
-    )
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="max", factor=0.5, patience=1
-    )
+    if config.optimizer == "sgd":
+        optimizer: torch.optim.Optimizer = torch.optim.SGD(
+            model.parameters(),
+            lr=config.learning_rate,
+            momentum=config.momentum,
+            weight_decay=config.weight_decay,
+            nesterov=True,
+        )
+    else:
+        optimizer = torch.optim.AdamW(
+            model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
+        )
+    if config.scheduler == "cosine":
+        scheduler: Any = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=config.epochs, eta_min=1e-6
+        )
+    else:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="max", factor=0.5, patience=1
+        )
+    use_mixed_precision = config.mixed_precision and device.type == "cuda"
+    if hasattr(torch.amp, "GradScaler"):
+        scaler = torch.amp.GradScaler("cuda", enabled=use_mixed_precision)
+    else:  # PyTorch 2.1 compatibility
+        scaler = torch.cuda.amp.GradScaler(enabled=use_mixed_precision)
     history: list[dict[str, float]] = []
     best_accuracy = -1.0
     best_epoch = 0
@@ -87,12 +118,25 @@ def train_model(
 
     for epoch_number in range(1, config.epochs + 1):
         train_loss, train_accuracy = _epoch(
-            model, train_loader, criterion, device, optimizer=optimizer
+            model,
+            train_loader,
+            criterion,
+            device,
+            optimizer=optimizer,
+            scaler=scaler,
+            use_mixed_precision=use_mixed_precision,
         )
         validation_loss, validation_accuracy = _epoch(
-            model, validation_loader, criterion, device
+            model,
+            validation_loader,
+            criterion,
+            device,
+            use_mixed_precision=use_mixed_precision,
         )
-        scheduler.step(validation_accuracy)
+        if config.scheduler == "cosine":
+            scheduler.step()
+        else:
+            scheduler.step(validation_accuracy)
         history.append(
             {
                 "epoch": float(epoch_number),
@@ -133,7 +177,10 @@ def load_checkpoint(model: nn.Module, path: str | Path, device: torch.device) ->
 
 
 def predict_probabilities(
-    model: nn.Module, loader: DataLoader[Any], device: torch.device
+    model: nn.Module,
+    loader: DataLoader[Any],
+    device: torch.device,
+    use_mixed_precision: bool = False,
 ) -> PredictionResult:
     model.eval()
     probability_batches: list[np.ndarray] = []
@@ -143,7 +190,12 @@ def predict_probabilities(
     started = time.perf_counter()
     with torch.inference_mode():
         for inputs, labels in loader:
-            logits = model(inputs.to(device, non_blocking=True))
+            with torch.autocast(
+                device_type=device.type,
+                dtype=torch.float16,
+                enabled=use_mixed_precision and device.type == "cuda",
+            ):
+                logits = model(inputs.to(device, non_blocking=True))
             probability_batches.append(torch.softmax(logits, dim=1).cpu().numpy())
             label_batches.append(labels.numpy())
     if device.type == "cuda":

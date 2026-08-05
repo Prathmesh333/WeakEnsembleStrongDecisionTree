@@ -17,7 +17,14 @@ def test_training_checkpoint_and_probability_prediction(tmp_path: Path) -> None:
     evaluation_loader = DataLoader(dataset, batch_size=8, shuffle=False)
     model = nn.Sequential(nn.Flatten(), nn.Linear(64, 2))
     checkpoint = tmp_path / "model.pt"
-    config = TrainingConfig(epochs=2, batch_size=8, patience=2, device="cpu")
+    config = TrainingConfig(
+        epochs=2,
+        batch_size=8,
+        patience=2,
+        device="cpu",
+        scheduler="cosine",
+        mixed_precision=True,
+    )
 
     result = train_model(
         model,

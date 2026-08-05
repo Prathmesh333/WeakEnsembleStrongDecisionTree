@@ -36,6 +36,10 @@ class TrainingConfig:
     patience: int = 4
     label_smoothing: float = 0.0
     device: str = "auto"
+    scheduler: str = "plateau"
+    mixed_precision: bool = False
+    optimizer: str = "adamw"
+    momentum: float = 0.9
 
 
 @dataclass(slots=True)
@@ -67,6 +71,10 @@ class ExperimentConfig:
         self.dataset.validate()
         if self.training.epochs < 1 or self.training.batch_size < 1:
             raise ValueError("epochs and batch_size must be positive")
+        if self.training.scheduler not in {"plateau", "cosine"}:
+            raise ValueError("training.scheduler must be 'plateau' or 'cosine'")
+        if self.training.optimizer not in {"adamw", "sgd"}:
+            raise ValueError("training.optimizer must be 'adamw' or 'sgd'")
         if self.tree.cv_folds < 2:
             raise ValueError("tree.cv_folds must be at least 2")
 

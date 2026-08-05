@@ -34,6 +34,24 @@ Run the automated checks before downloading either dataset:
 pytest
 ```
 
+## Run on Kaggle's T4 x2 accelerator
+
+Open [the Kaggle/Colab notebook](notebooks/treestack_kaggle_colab.ipynb) and select Kaggle's `GPU T4 x2` accelerator. The notebook clones this repository, checks both CUDA devices and runs the full leakage-free pipeline.
+
+Two CNNs train concurrently, one per GPU. When either finishes, the third takes its place. This is independent-model parallelism rather than data parallelism: each network keeps its own optimizer, random seed and checkpoint. Automatic mixed precision reduces T4 memory use and speeds up convolution training.
+
+The ensemble is deliberately heterogeneous. Its members differ in depth, width, residual connections, batch normalization, dropout, optimizer, learning rate, weight decay, label smoothing and initialization seed. The notebook reports pairwise prediction disagreement, double-fault rates and oracle accuracy to verify that these design differences create useful error diversity. Diversity does not guarantee freedom from overfitting, so every CNN still uses an isolated validation split, early stopping and train-versus-validation convergence checks.
+
+The default notebook settings run Fashion-MNIST for 25 epochs with seed 42. Treat that run as a convergence check. Change the seeds to `17, 42, 73` only after the base models reach credible validation accuracy, then run CIFAR-10 in a separate saved notebook version with a larger epoch budget.
+
+The same runner works from a terminal:
+
+```bash
+treestack-cuda --dataset fashion_mnist --seeds 42 --epochs 25 --max-gpus 2
+```
+
+With one GPU, the runner queues all three CNNs on that device. On a CPU-only machine it stops with a clear error instead of silently running a long experiment.
+
 ## Run an experiment
 
 Start with the quick configuration. It trains for only two epochs, so use it to catch environment or data-loading problems rather than to judge the method.
