@@ -1,0 +1,29 @@
+# One dataset, one seed and two epochs. This checks the complete pipeline;
+# it is not suitable for reporting research results.
+datasets: [fashion_mnist]
+seeds: [42]
+output_dir: artifacts/quick
+
+dataset:
+  name: fashion_mnist
+  root: data
+  base_fraction: 0.60
+  meta_fraction: 0.20
+  test_fraction: 0.20
+  num_workers: 0
+  download: true
+
+training:
+  epochs: 2
+  batch_size: 256
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  patience: 2
+  label_smoothing: 0.0
+  device: auto
+
+tree:
+  depths: [3, 5, 7, null]
+  min_samples_leaf: [5, 10, 20]
+  criteria: [gini, entropy]
+  cv_folds: 3
