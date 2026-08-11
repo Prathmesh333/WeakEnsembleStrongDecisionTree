@@ -27,6 +27,7 @@ def test_kaggle_notebook_is_valid_and_code_cells_compile() -> None:
     assert "sys.path.insert(0, str(SRC_DIR))" in notebook_source
     assert 'os.environ["PYTHONPATH"]' in notebook_source
     assert "env=RUN_ENV" in notebook_source
+    assert "max(run_reports, key=lambda path: path.stat().st_mtime)" in notebook_source
     assert 'pip", "install", "-e"' not in notebook_source
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] == "code":
