@@ -17,6 +17,7 @@ This is stacked generalization, not a new ensemble family. The research contribu
 - Three-seed aggregation with a paper-ready `mean ± standard deviation` accuracy table.
 - Cached checkpoints and prediction arrays. A hash of the run settings and model version prevents incompatible artifacts from being mixed.
 - A V3 runner that compares raw, EMA and greedy weight-averaged checkpoints, then evolves conservative probability-fusion rules on an isolated meta split.
+- A V4 full-benchmark runner for Fashion-MNIST and CIFAR-10 across three seeds, with search-only genome selection, an audit-only holdout, exact paired tests and bootstrap confidence intervals.
 
 ## Set up the project
 
@@ -57,13 +58,27 @@ treestack-cuda --dataset fashion_mnist --seeds 42 --epochs 40 --batch-size 128 -
 
 With one GPU, the runner queues all three CNNs on that device. On a CPU-only machine it stops with a clear error instead of silently running a long experiment.
 
-## Run V3 weight evolution and fusion search
+## Run the complete V4 benchmark
+
+Open [the V4 Kaggle/Colab notebook](notebooks/treestack_v4_full_benchmark_kaggle.ipynb) and select Kaggle's `GPU T4 x2` accelerator. Its default `paper` mode runs every supported dataset—Fashion-MNIST and CIFAR-10—with seeds 17, 42 and 73. A `smoke` mode verifies both datasets with one seed and two epochs before a long run.
+
+V4 fixes the selection bias found in the original V3 analysis. All candidate genomes compete only on the meta-search partition. The search winner is frozen before exactly one evaluation on the meta-audit partition. Audit labels never select or modify a genome. The official test set is then evaluated once for each predeclared dataset and seed.
+
+The notebook checks imports in both the current kernel and a child process, uses `sys.executable` consistently, and carries the repository `src` directory through `PYTHONPATH`. Matching checkpoints and predictions are reused after an interrupted run.
+
+```bash
+treestack-v4 --datasets fashion_mnist cifar10 --seeds 17 42 73 --max-gpus 2
+```
+
+The root output directory includes `publication_summary.csv` with seed-level means, sample standard deviations and bootstrap 95% confidence intervals. It also includes `paired_tests.csv` with exact McNemar correction-versus-harm tests and Holm-adjusted p-values.
+
+## Historical V3 weight evolution and fusion search
 
 Open [the V3 Kaggle/Colab notebook](notebooks/treestack_v3_evolutionary_kaggle.ipynb) for the self-learning experiment. Every CNN keeps the strongest raw checkpoint, exponential moving average or greedy checkpoint soup found during training. A separate population then searches arithmetic means, geometric probability products, confidence selection, model weights, temperatures and conservative override thresholds.
 
 V3 never averages tensors from different architectures. The spatial, depthwise and residual CNNs do not have compatible parameter shapes. Weight combinations stay inside one model's training history; cross-model combinations operate on probabilities.
 
-The fusion population searches on 80% of the meta partition and selects its final rule on the remaining 20%. The official test set is evaluated only after the rule is frozen. Since the Fashion-MNIST V2 test result has already guided this next experiment, use Fashion-MNIST as an exploratory run and confirm the frozen V3 method on CIFAR-10 or another untouched dataset.
+The original V3 result selected the best of many candidates using the claimed validation subset, so that subset was not an independent holdout. The current source confines selection to the search partition, but V4 is the recommended protocol because it records the correction explicitly and runs the complete predeclared benchmark.
 
 The same experiment can run from a terminal:
 
@@ -104,7 +119,9 @@ Official training set
   ├─ 75% base partition
   │  ├─ 90% of base: CNN parameter fitting
   │  └─ 10% of base: CNN early stopping and voting weights
-  └─ 25% meta partition: fusion-model fitting
+  └─ 25% meta partition
+     ├─ 80%: evolutionary search
+     └─ 20%: audit of one frozen genome
 
 Official test set: final evaluation only
 ```
@@ -124,6 +141,8 @@ That folder contains CNN checkpoints, cached probability arrays, fitted scikit-l
 - `all_runs.csv` with one row per method, dataset and seed;
 - `aggregate_results.csv` with means and standard deviations;
 - `paper_accuracy_table.csv` in the layout used by the planned result table.
+
+V4 also writes `publication_summary.csv`, `paired_tests.csv` and `run_manifest.json`.
 
 ## Reading the ablations
 

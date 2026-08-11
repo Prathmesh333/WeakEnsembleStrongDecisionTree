@@ -14,9 +14,11 @@ The study does not claim that stacking is new. Its contribution is the use and a
 4. How does tree depth change accuracy, tree size and interpretability?
 5. Does the third CNN add complementary information?
 
-## Leakage controls
+## Leakage and selection controls
 
-Every dataset uses a class-stratified 60/20/20 split. CNN fitting and early stopping occur entirely inside the 60% base partition. The frozen CNNs generate predictions for the 20% meta partition, and those predictions train the logistic and tree combiners. The final 20% test labels are read only by the reporting code.
+The default protocol preserves each torchvision official test set. It splits only the official training set in a class-stratified 75:25 ratio between the CNN base partition and the meta partition. CNN fitting and early stopping occur entirely inside the base partition. The frozen CNNs generate predictions for the meta partition, and those predictions train the fusion models. Official test labels are read only by reporting code after every method is frozen.
+
+V4 further splits the meta partition into 80% search and 20% audit samples. All evolutionary candidates compete on search data. The single search winner is frozen and evaluated once on audit data. Audit labels cannot select, mutate, gate or otherwise modify the genome. The audit result is diagnostic evidence, not an extra hyperparameter search.
 
 The target label is never a tree feature. For a ten-class dataset, the proposed three-CNN input has 30 values:
 
@@ -34,7 +36,7 @@ Voting weights come from the base-validation subset rather than the final test s
 
 ## Measurements
 
-Report test accuracy and macro F1 as mean ± standard deviation over seeds 17, 42 and 73. Keep the per-class precision, recall and F1 values in the supplementary results. Each run also records a confusion matrix, trainable CNN parameter counts, prediction time, tree depth, leaf count and split-node count.
+Report test accuracy and macro F1 as mean ± sample standard deviation over seeds 17, 42 and 73. Include bootstrap 95% confidence intervals. Use exact paired McNemar tests for V4 versus soft voting, logistic stacking, random-forest stacking, DT-Soft and the strongest CNN; report correction and harm counts with Holm-adjusted p-values. Keep the per-class precision, recall and F1 values in the supplementary results. Each run also records a confusion matrix, trainable CNN parameter counts, prediction time, tree depth, leaf count and split-node count.
 
 The disagreement report separates samples into three groups: all CNNs agree, exactly two agree and all three disagree. It also counts cases where DT-Soft corrects majority voting, damages a correct majority decision or fails despite at least one correct base prediction. Those cases are more informative than a single accuracy difference.
 

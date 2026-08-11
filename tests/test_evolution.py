@@ -11,7 +11,6 @@ from treestack_cnn.evolution import (
 from treestack_cnn.config import ExperimentConfig
 from treestack_cnn.elite_training import EliteWeightConfig
 from treestack_cnn.v3_runner import _append_evolutionary_fusion
-from treestack_cnn.stacking import soft_vote
 from treestack_cnn.utils import write_json
 
 
@@ -65,11 +64,34 @@ def test_evolution_is_deterministic_and_preserves_meta_holdout() -> None:
     assert predictions.shape == labels.shape
     assert overrides.dtype == np.bool_
     assert 0.0 <= first.validation_score.accuracy <= 1.0
-    validation_soft_accuracy = np.mean(
-        soft_vote(probabilities[:, first.validation_indices])
-        == labels[first.validation_indices]
+    assert first.search_candidate_count == 5 + config.generations * config.elite_count
+
+
+def test_audit_labels_cannot_change_selected_genome(monkeypatch) -> None:
+    probabilities, labels = _synthetic_probabilities()
+    search_indices = np.arange(180)
+    audit_indices = np.arange(180, 240)
+    monkeypatch.setattr(
+        "treestack_cnn.evolution.stratified_meta_split",
+        lambda labels, validation_fraction, seed: (search_indices, audit_indices),
     )
-    assert first.validation_score.accuracy >= validation_soft_accuracy
+    config = EvolutionConfig(
+        generations=3,
+        population_size=8,
+        elite_count=2,
+        tournament_size=2,
+        meta_validation_fraction=0.25,
+    )
+    first = evolve_fusion(probabilities, labels, np.array([0.9, 0.89, 0.88]), config, 42)
+    changed_labels = labels.copy()
+    changed_labels[audit_indices] = (changed_labels[audit_indices] + 1) % 3
+    second = evolve_fusion(
+        probabilities, changed_labels, np.array([0.9, 0.89, 0.88]), config, 42
+    )
+
+    assert first.genome.as_dict() == second.genome.as_dict()
+    assert first.search_score == second.search_score
+    assert first.validation_score != second.validation_score
 
 
 def test_v3_report_append_writes_reproducible_artifacts(tmp_path, monkeypatch) -> None:

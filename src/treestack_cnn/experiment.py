@@ -40,6 +40,7 @@ METHOD_LABELS = {
     "rf_soft": "Random Forest Stack",
     "hgb_soft": "HGB Stack",
     "evolutionary_fusion": "Evolutionary Fusion (V3)",
+    "evolutionary_fusion_v4": "Evolutionary Fusion (V4)",
     "dt_hard": "DT-Hard",
     "dt_soft": "DT-Soft",
     "dt_enhanced": "DT-Enhanced",
@@ -255,6 +256,12 @@ def run_single_experiment(
     for method, combiner in ensembles.combiners.items():
         joblib.dump(combiner.estimator, model_dir / f"{method}.joblib")
 
+    np.savez_compressed(
+        run_dir / "test_predictions.npz",
+        labels=test_labels,
+        **ensembles.predictions,
+    )
+
     detailed_metrics: dict[str, Any] = {}
     summary_rows: list[dict[str, Any]] = []
     base_ensemble_time = float(sum(inference_times))
@@ -421,6 +428,7 @@ def aggregate_results(rows: list[dict[str, Any]], output_dir: str | Path) -> tup
         "Random Forest Stack",
         "HGB Stack",
         "Evolutionary Fusion (V3)",
+        "Evolutionary Fusion (V4)",
         "DT-Hard",
         "DT-Soft",
         "DT-Enhanced",

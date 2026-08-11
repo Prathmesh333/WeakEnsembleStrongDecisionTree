@@ -97,6 +97,7 @@ class EvolutionResult:
     history: list[dict[str, Any]]
     search_indices: np.ndarray
     validation_indices: np.ndarray
+    search_candidate_count: int
 
 
 def stratified_meta_split(
@@ -293,8 +294,10 @@ def evolve_fusion(
     population = _initial_population(
         values.shape[0], validation_accuracies, config, rng
     )
-    # Keep the fixed baselines in the final validation pool even if evolution
-    # later prefers more aggressive candidates on the search partition.
+    # Candidate selection is confined to the search partition.  The audit
+    # partition is evaluated exactly once after the genome has been frozen.
+    # This prevents the optimistic V3 behaviour where the best of many
+    # candidates was selected using the claimed holdout.
     candidate_pool: list[tuple[FusionGenome, FusionScore]] = [
         (
             genome.clone(),
@@ -332,22 +335,10 @@ def evolve_fusion(
         while len(population) < config.population_size:
             population.append(_mutate(tournament(), tournament(), config, rng))
 
-    validation_candidates: list[tuple[FusionGenome, FusionScore, FusionScore]] = []
-    for genome, search_score in candidate_pool:
-        validation_score = score_genome(
-            validation_probabilities, validation_labels, genome, config
-        )
-        validation_candidates.append((genome, search_score, validation_score))
-    validation_candidates.sort(
-        key=lambda item: (
-            item[2].accuracy,
-            -item[2].harm_rate,
-            item[2].unique_correction_rate,
-            item[1].fitness,
-        ),
-        reverse=True,
+    selected, search_score = max(candidate_pool, key=_score_key)
+    validation_score = score_genome(
+        validation_probabilities, validation_labels, selected, config
     )
-    selected, search_score, validation_score = validation_candidates[0]
     return EvolutionResult(
         genome=selected.clone(),
         search_score=search_score,
@@ -355,4 +346,5 @@ def evolve_fusion(
         history=history,
         search_indices=search_indices,
         validation_indices=validation_indices,
+        search_candidate_count=len(candidate_pool),
     )

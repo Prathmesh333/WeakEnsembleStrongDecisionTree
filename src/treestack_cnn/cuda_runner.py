@@ -226,6 +226,14 @@ def _fit_and_report(
     for method, combiner in ensembles.combiners.items():
         joblib.dump(combiner.estimator, combiner_dir / f"{method}.joblib")
 
+    # Preserve paired predictions so publication statistics can compare two
+    # methods on exactly the same test samples without rerunning the CNNs.
+    np.savez_compressed(
+        run_dir / "test_predictions.npz",
+        labels=test_labels,
+        **ensembles.predictions,
+    )
+
     detailed_metrics: dict[str, Any] = {}
     rows: list[dict[str, Any]] = []
     base_ensemble_time = float(sum(inference_times))
