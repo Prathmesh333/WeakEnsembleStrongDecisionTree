@@ -16,6 +16,7 @@ This is stacked generalization, not a new ensemble family. The research contribu
 - Accuracy, macro F1, per-class scores, confusion matrices, parameter counts, inference time, tree depth and leaf count.
 - Three-seed aggregation with a paper-ready `mean ± standard deviation` accuracy table.
 - Cached checkpoints and prediction arrays. A hash of the run settings and model version prevents incompatible artifacts from being mixed.
+- A V3 runner that compares raw, EMA and greedy weight-averaged checkpoints, then evolves conservative probability-fusion rules on an isolated meta split.
 
 ## Set up the project
 
@@ -55,6 +56,20 @@ treestack-cuda --dataset fashion_mnist --seeds 42 --epochs 40 --batch-size 128 -
 ```
 
 With one GPU, the runner queues all three CNNs on that device. On a CPU-only machine it stops with a clear error instead of silently running a long experiment.
+
+## Run V3 weight evolution and fusion search
+
+Open [the V3 Kaggle/Colab notebook](notebooks/treestack_v3_evolutionary_kaggle.ipynb) for the self-learning experiment. Every CNN keeps the strongest raw checkpoint, exponential moving average or greedy checkpoint soup found during training. A separate population then searches arithmetic means, geometric probability products, confidence selection, model weights, temperatures and conservative override thresholds.
+
+V3 never averages tensors from different architectures. The spatial, depthwise and residual CNNs do not have compatible parameter shapes. Weight combinations stay inside one model's training history; cross-model combinations operate on probabilities.
+
+The fusion population searches on 80% of the meta partition and selects its final rule on the remaining 20%. The official test set is evaluated only after the rule is frozen. Since the Fashion-MNIST V2 test result has already guided this next experiment, use Fashion-MNIST as an exploratory run and confirm the frozen V3 method on CIFAR-10 or another untouched dataset.
+
+The same experiment can run from a terminal:
+
+```bash
+treestack-v3 --dataset fashion_mnist --seeds 42 --epochs 50 --max-gpus 2
+```
 
 ## Run an experiment
 
@@ -120,5 +135,9 @@ The primary tree search excludes unlimited depth. Depths 3, 5 and 7 compete thro
 
 - David H. Wolpert, [Stacked Generalization](https://doi.org/10.1016/S0893-6080(05)80023-1), *Neural Networks*, 1992.
 - scikit-learn, [StackingClassifier documentation](https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.StackingClassifier.html), for the standard out-of-sample stacking principle.
+- Jaderberg et al., [Population Based Training of Neural Networks](https://arxiv.org/abs/1711.09846), 2017.
+- Izmailov et al., [Averaging Weights Leads to Wider Optima and Better Generalization](https://arxiv.org/abs/1803.05407), 2018.
+- Wortsman et al., [Model soups](https://arxiv.org/abs/2203.05482), 2022.
+- Ainsworth et al., [Git Re-Basin](https://arxiv.org/abs/2209.04836), 2022.
 
 The implementation does not use `StackingClassifier` because the base predictors are trained PyTorch models and their probabilities are cached explicitly. That separation makes the leakage boundary easier to inspect.

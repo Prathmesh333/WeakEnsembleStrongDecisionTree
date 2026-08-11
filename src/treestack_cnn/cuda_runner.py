@@ -14,6 +14,7 @@ import torch
 
 from .config import DatasetConfig, ExperimentConfig, TrainingConfig, TreeConfig
 from .data import build_dataset, build_loaders
+from .elite_training import EliteWeightConfig, train_elite_model
 from .evaluation import (
     classification_metrics,
     probability_feature_names,
@@ -79,6 +80,7 @@ def _train_model_task(
     run_dir_value: str,
     device_queue: Any,
     force: bool,
+    elite_weight_values: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Train one independent CNN in a spawned process pinned to one CUDA device."""
     device_index = int(device_queue.get())
@@ -106,26 +108,50 @@ def _train_model_task(
             load_checkpoint(model, checkpoint_path, device)
         else:
             print(f"[{model_name}] training on GPU {device_index}", flush=True)
-            result = train_model(
-                model,
-                loaders.base_train,
-                loaders.base_validation,
-                training_config,
-                device,
-                checkpoint_path,
-            )
+            if elite_weight_values is None:
+                result = train_model(
+                    model,
+                    loaders.base_train,
+                    loaders.base_validation,
+                    training_config,
+                    device,
+                    checkpoint_path,
+                )
+            else:
+                result = train_elite_model(
+                    model,
+                    loaders.base_train,
+                    loaders.base_validation,
+                    training_config,
+                    EliteWeightConfig(**elite_weight_values),
+                    device,
+                    checkpoint_path,
+                )
             ensure_dir(history_path.parent)
             pd.DataFrame(result.history).to_csv(history_path, index=False)
             save_training_curves(
                 result.history, run_dir / "figures" / f"training_{model_name}.png"
             )
+            training_summary = {
+                "gpu": device_index,
+                "best_epoch": result.best_epoch,
+                "best_validation_accuracy": result.best_validation_accuracy,
+                "training_seconds": result.training_seconds,
+                "training_strategy": (
+                    "raw_ema_greedy_soup"
+                    if elite_weight_values is not None
+                    else "standard_best_checkpoint"
+                ),
+            }
+            if elite_weight_values is not None:
+                training_summary.update(
+                    {
+                        "elite_kind": result.elite_kind,
+                        "soup_checkpoint_count": result.soup_checkpoint_count,
+                    }
+                )
             write_json(
-                {
-                    "gpu": device_index,
-                    "best_epoch": result.best_epoch,
-                    "best_validation_accuracy": result.best_validation_accuracy,
-                    "training_seconds": result.training_seconds,
-                },
+                training_summary,
                 run_dir / "training" / f"{model_name}_summary.json",
             )
 
@@ -145,6 +171,11 @@ def _train_model_task(
             "validation_accuracy": float(cached["validation_accuracy"]),
             "test_ms_per_sample": float(cached["test_ms_per_sample"]),
             "cache_path": str(cache_path),
+            "training_strategy": (
+                "raw_ema_greedy_soup"
+                if elite_weight_values is not None
+                else "standard_best_checkpoint"
+            ),
             "training_profile": {
                 **MODEL_DIVERSITY_PROFILES[model_name],
                 "learning_rate": training_config.learning_rate,
