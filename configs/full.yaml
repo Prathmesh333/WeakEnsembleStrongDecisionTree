@@ -10,19 +10,21 @@ dataset:
   base_fraction: 0.60
   meta_fraction: 0.20
   test_fraction: 0.20
+  use_official_test: true
   num_workers: 0
   download: true
 
 training:
-  epochs: 20
+  # Shared ceiling for both datasets. Fashion-MNIST normally stops much earlier.
+  epochs: 150
   batch_size: 128
-  learning_rate: 0.001
+  learning_rate: 0.002
   weight_decay: 0.0001
-  patience: 5
+  patience: 20
   label_smoothing: 0.0
   device: auto
   scheduler: plateau
-  mixed_precision: false
+  mixed_precision: true
   optimizer: adamw
   momentum: 0.9
 

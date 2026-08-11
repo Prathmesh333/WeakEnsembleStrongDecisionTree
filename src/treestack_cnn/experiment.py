@@ -10,6 +10,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import torch
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
 
 from .config import ExperimentConfig
@@ -21,7 +22,8 @@ from .evaluation import (
     save_training_curves,
     save_tree_visualization,
 )
-from .models import MODEL_BUILDERS
+from .models import MODEL_BUILDERS, MODEL_VERSION
+from .profiles import MODEL_DIVERSITY_PROFILES, model_training_config
 from .stacking import disagreement_analysis, pairwise_diversity_analysis, run_ensembles
 from .training import load_checkpoint, predict_probabilities, train_model
 from .utils import count_parameters, ensure_dir, resolve_device, set_seed, write_json
@@ -35,6 +37,8 @@ METHOD_LABELS = {
     "soft_vote": "Soft Vote",
     "weighted_soft_vote": "Weighted Soft Vote",
     "logistic_stack": "Logistic Stack",
+    "rf_soft": "Random Forest Stack",
+    "hgb_soft": "HGB Stack",
     "dt_hard": "DT-Hard",
     "dt_soft": "DT-Soft",
     "dt_enhanced": "DT-Enhanced",
@@ -47,6 +51,7 @@ def _configuration_hash(config: ExperimentConfig, dataset_name: str, seed: int) 
         "dataset": {**asdict(config.dataset), "name": dataset_name},
         "training": asdict(config.training),
         "tree": asdict(config.tree),
+        "model_version": MODEL_VERSION,
         "seed": seed,
     }
     payload = json.dumps(relevant, sort_keys=True).encode("utf-8")
@@ -129,6 +134,18 @@ def _method_complexity(
             result["combiner_parameters"] = int(
                 estimator.coef_.size + estimator.intercept_.size
             )
+        elif isinstance(estimator, RandomForestClassifier):
+            result.update(
+                {
+                    "combiner_parameters": int(
+                        sum(tree.tree_.node_count for tree in estimator.estimators_)
+                    ),
+                    "tree_depth": int(max(tree.get_depth() for tree in estimator.estimators_)),
+                    "tree_leaves": int(
+                        sum(tree.get_n_leaves() for tree in estimator.estimators_)
+                    ),
+                }
+            )
     return result
 
 
@@ -160,9 +177,10 @@ def run_single_experiment(
     for model_index, (model_name, builder) in enumerate(MODEL_BUILDERS.items()):
         model_seed = seed + 1000 * model_index
         set_seed(model_seed)
+        training_config = model_training_config(config.training, model_name)
         model = builder(bundle.in_channels, bundle.num_classes)
         model_parameters.append(count_parameters(model))
-        loaders = build_loaders(bundle, dataset_config, config.training, model_seed)
+        loaders = build_loaders(bundle, dataset_config, training_config, model_seed)
         checkpoint_path = run_dir / "checkpoints" / f"{model_name}.pt"
         history_path = run_dir / "training" / f"{model_name}.csv"
         use_checkpoint = checkpoint_path.exists() and config.reuse_checkpoints and not force
@@ -175,7 +193,7 @@ def run_single_experiment(
                 model,
                 loaders.base_train,
                 loaders.base_validation,
-                config.training,
+                training_config,
                 device,
                 checkpoint_path,
             )
@@ -336,6 +354,13 @@ def run_single_experiment(
             "model_names": model_names,
             "model_parameters": dict(zip(model_names, model_parameters)),
             "validation_accuracies": dict(zip(model_names, validation_accuracies)),
+            "training_profiles": {
+                name: {
+                    **MODEL_DIVERSITY_PROFILES[name],
+                    "learning_rate": model_training_config(config.training, name).learning_rate,
+                }
+                for name in model_names
+            },
             "best_two_model_indices": ensembles.best_two_indices,
             "meta_feature_dimensions": ensembles.meta_feature_dimensions,
             "split_sizes": {

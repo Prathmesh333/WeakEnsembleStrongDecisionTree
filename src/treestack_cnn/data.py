@@ -116,6 +116,54 @@ def stratified_three_way_split(
     return result
 
 
+def stratified_official_test_split(
+    training_targets: np.ndarray,
+    test_targets: np.ndarray,
+    base_fraction: float,
+    meta_fraction: float,
+    seed: int,
+    base_validation_fraction: float = 0.10,
+) -> SplitIndices:
+    """Split only the official training set and preserve the official test set.
+
+    ``base_fraction`` and ``meta_fraction`` retain their configured ratio after
+    the official test set is removed. With the default 0.60/0.20 ratio, 75% of
+    the official training set is assigned to the base partition and 25% to the
+    meta partition.
+    """
+    training_targets = np.asarray(training_targets)
+    test_targets = np.asarray(test_targets)
+    if training_targets.ndim != 1 or test_targets.ndim != 1:
+        raise ValueError("Training and test targets must be one-dimensional")
+    relative_base = base_fraction / (base_fraction + meta_fraction)
+    base_count = round(len(training_targets) * relative_base)
+    training_indices = np.arange(len(training_targets))
+    base, meta = train_test_split(
+        training_indices,
+        train_size=base_count,
+        random_state=seed,
+        shuffle=True,
+        stratify=training_targets,
+    )
+    base_train, base_validation = train_test_split(
+        base,
+        test_size=base_validation_fraction,
+        random_state=seed + 2,
+        shuffle=True,
+        stratify=training_targets[base],
+    )
+    test = np.arange(len(training_targets), len(training_targets) + len(test_targets))
+    result = SplitIndices(
+        base=np.sort(base),
+        base_train=np.sort(base_train),
+        base_validation=np.sort(base_validation),
+        meta=np.sort(meta),
+        test=test,
+    )
+    _validate_disjoint_split(result, len(training_targets) + len(test_targets))
+    return result
+
+
 def _validate_disjoint_split(splits: SplitIndices, sample_count: int) -> None:
     base, meta, test = map(set, (splits.base, splits.meta, splits.test))
     if base & meta or base & test or meta & test:
@@ -171,13 +219,22 @@ def build_dataset(config: DatasetConfig, seed: int) -> DatasetBundle:
     targets = np.concatenate(
         [np.asarray(training_raw.targets), np.asarray(test_raw.targets)]
     ).astype(np.int64)
-    splits = stratified_three_way_split(
-        targets,
-        config.base_fraction,
-        config.meta_fraction,
-        config.test_fraction,
-        seed,
-    )
+    if config.use_official_test:
+        splits = stratified_official_test_split(
+            np.asarray(training_raw.targets),
+            np.asarray(test_raw.targets),
+            config.base_fraction,
+            config.meta_fraction,
+            seed,
+        )
+    else:
+        splits = stratified_three_way_split(
+            targets,
+            config.base_fraction,
+            config.meta_fraction,
+            config.test_fraction,
+            seed,
+        )
     train_transform, evaluation_transform = _transforms(config.name, mean, std)
     class_names = list(training_raw.classes)
     return DatasetBundle(

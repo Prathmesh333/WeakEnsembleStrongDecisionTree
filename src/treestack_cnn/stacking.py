@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.tree import DecisionTreeClassifier
@@ -130,6 +131,48 @@ def fit_logistic_stack(
     return FittedCombiner(estimator, predictions, {}, fit_seconds, milliseconds)
 
 
+def fit_nonlinear_stack(
+    train_features: np.ndarray,
+    train_labels: np.ndarray,
+    test_features: np.ndarray,
+    seed: int,
+) -> dict[str, FittedCombiner]:
+    """Fit strong nonlinear baselines on the same soft-probability features."""
+    estimators: dict[str, Any] = {
+        "rf_soft": RandomForestClassifier(
+            n_estimators=300,
+            min_samples_leaf=2,
+            max_features="sqrt",
+            class_weight="balanced_subsample",
+            n_jobs=-1,
+            random_state=seed,
+        ),
+        "hgb_soft": HistGradientBoostingClassifier(
+            learning_rate=0.06,
+            max_iter=200,
+            max_leaf_nodes=31,
+            min_samples_leaf=20,
+            l2_regularization=0.1,
+            early_stopping=True,
+            random_state=seed,
+        ),
+    }
+    results: dict[str, FittedCombiner] = {}
+    for name, estimator in estimators.items():
+        started = time.perf_counter()
+        estimator.fit(train_features, train_labels)
+        fit_seconds = time.perf_counter() - started
+        predictions, milliseconds = _timed_predict(estimator, test_features)
+        results[name] = FittedCombiner(
+            estimator,
+            predictions,
+            dict(estimator.get_params(deep=False)),
+            fit_seconds,
+            milliseconds,
+        )
+    return results
+
+
 def fit_tree_stack(
     train_features: np.ndarray,
     train_labels: np.ndarray,
@@ -147,6 +190,37 @@ def fit_tree_stack(
         param_grid={
             "criterion": config.criteria,
             "max_depth": finite_depths,
+            "min_samples_leaf": config.min_samples_leaf,
+        },
+        scoring="accuracy",
+        cv=cv,
+        n_jobs=-1,
+        refit=True,
+    )
+    started = time.perf_counter()
+    search.fit(train_features, train_labels)
+    fit_seconds = time.perf_counter() - started
+    predictions, milliseconds = _timed_predict(search.best_estimator_, test_features)
+    return FittedCombiner(
+        search.best_estimator_, predictions, dict(search.best_params_), fit_seconds, milliseconds
+    )
+
+
+def fit_tree_at_depth(
+    train_features: np.ndarray,
+    train_labels: np.ndarray,
+    test_features: np.ndarray,
+    config: TreeConfig,
+    seed: int,
+    depth: int | None,
+) -> FittedCombiner:
+    """Tune the criterion and leaf size while holding tree depth fixed."""
+    cv = StratifiedKFold(n_splits=config.cv_folds, shuffle=True, random_state=seed)
+    search = GridSearchCV(
+        DecisionTreeClassifier(random_state=seed),
+        param_grid={
+            "criterion": config.criteria,
+            "max_depth": [depth],
             "min_samples_leaf": config.min_samples_leaf,
         },
         scoring="accuracy",
@@ -204,6 +278,9 @@ def run_ensembles(
     combiners["logistic_stack"] = fit_logistic_stack(
         train_features["soft"], meta_labels, test_features["soft"], seed
     )
+    combiners.update(
+        fit_nonlinear_stack(train_features["soft"], meta_labels, test_features["soft"], seed)
+    )
     for feature_name in ("hard", "soft", "enhanced"):
         method = f"dt_{feature_name}"
         combiners[method] = fit_tree_stack(
@@ -226,13 +303,18 @@ def run_ensembles(
 
     depth_ablation: dict[str, tuple[np.ndarray, int, int]] = {}
     for depth in tree_config.depths:
-        estimator = DecisionTreeClassifier(
-            criterion="gini", max_depth=depth, min_samples_leaf=10, random_state=seed
+        fitted = fit_tree_at_depth(
+            train_features["soft"],
+            meta_labels,
+            test_features["soft"],
+            tree_config,
+            seed,
+            depth,
         )
-        estimator.fit(train_features["soft"], meta_labels)
+        estimator = fitted.estimator
         label = "unrestricted" if depth is None else str(depth)
         depth_ablation[label] = (
-            estimator.predict(test_features["soft"]).astype(np.int64),
+            fitted.predictions,
             int(estimator.get_depth()),
             int(estimator.get_n_leaves()),
         )

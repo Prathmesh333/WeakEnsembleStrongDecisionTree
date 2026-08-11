@@ -36,6 +36,7 @@ def test_kaggle_notebook_is_valid_and_code_cells_compile() -> None:
 def test_cuda_runner_defaults_target_two_gpus() -> None:
     args = build_parser().parse_args([])
     assert args.dataset == "fashion_mnist"
+    assert args.batch_size == 128
     assert args.max_gpus == 2
     assert args.num_workers == 1
 
@@ -60,7 +61,7 @@ def test_model_training_profiles_are_deliberately_different() -> None:
     configurations = {
         name: model_training_config(base, name) for name in MODEL_DIVERSITY_PROFILES
     }
-    assert configurations["cnn1_shallow"].optimizer == "adamw"
-    assert configurations["cnn3_tiny_residual"].optimizer == "sgd"
+    assert configurations["cnn1_spatial"].optimizer == "adamw"
+    assert configurations["cnn3_residual"].optimizer == "adamw"
     assert len({config.learning_rate for config in configurations.values()}) == 3
     assert len({config.label_smoothing for config in configurations.values()}) == 3

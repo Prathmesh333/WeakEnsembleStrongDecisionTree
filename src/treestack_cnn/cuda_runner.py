@@ -28,6 +28,7 @@ from .experiment import (
     aggregate_results,
 )
 from .models import MODEL_BUILDERS
+from .profiles import MODEL_DIVERSITY_PROFILES, model_training_config
 from .stacking import (
     disagreement_analysis,
     pairwise_diversity_analysis,
@@ -35,43 +36,6 @@ from .stacking import (
 )
 from .training import load_checkpoint, predict_probabilities, train_model
 from .utils import count_parameters, ensure_dir, set_seed, write_json
-
-
-MODEL_DIVERSITY_PROFILES: dict[str, dict[str, Any]] = {
-    "cnn1_shallow": {
-        "optimizer": "adamw",
-        "learning_rate_multiplier": 1.0,
-        "weight_decay": 1e-4,
-        "label_smoothing": 0.0,
-        "diversity_source": "shallow topology; no dropout; AdamW",
-    },
-    "cnn2_wide_dropout": {
-        "optimizer": "adamw",
-        "learning_rate_multiplier": 0.75,
-        "weight_decay": 5e-4,
-        "label_smoothing": 0.1,
-        "diversity_source": "wider topology; batch normalization; dropout; stronger decay",
-    },
-    "cnn3_tiny_residual": {
-        "optimizer": "sgd",
-        "learning_rate_multiplier": 15.0,
-        "weight_decay": 5e-4,
-        "label_smoothing": 0.05,
-        "diversity_source": "residual topology; SGD with momentum; different initialization seed",
-    },
-}
-
-
-def model_training_config(base: TrainingConfig, model_name: str) -> TrainingConfig:
-    """Return the model-specific training profile used to encourage error diversity."""
-    profile = MODEL_DIVERSITY_PROFILES[model_name]
-    return replace(
-        base,
-        optimizer=str(profile["optimizer"]),
-        learning_rate=base.learning_rate * float(profile["learning_rate_multiplier"]),
-        weight_decay=float(profile["weight_decay"]),
-        label_smoothing=float(profile["label_smoothing"]),
-    )
 
 
 def _prediction_cache(
@@ -241,6 +205,8 @@ def _fit_and_report(
         "majority_vote",
         "soft_vote",
         "logistic_stack",
+        "rf_soft",
+        "hgb_soft",
         "dt_soft",
     }
     for method, predictions in ensembles.predictions.items():
@@ -419,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset", choices=["fashion_mnist", "cifar10"], default="fashion_mnist")
     parser.add_argument("--seeds", nargs="+", type=int, default=[42])
     parser.add_argument("--epochs", type=int)
-    parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--learning-rate", type=float, default=2e-3)
     parser.add_argument("--patience", type=int)
     parser.add_argument("--label-smoothing", type=float, default=0.1)
@@ -433,8 +399,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    default_epochs = 25 if args.dataset == "fashion_mnist" else 120
-    default_patience = 7 if args.dataset == "fashion_mnist" else 18
+    default_epochs = 40 if args.dataset == "fashion_mnist" else 150
+    default_patience = 10 if args.dataset == "fashion_mnist" else 20
     dataset_config = DatasetConfig(
         name=args.dataset,
         root=str(Path(args.data_root).resolve()),

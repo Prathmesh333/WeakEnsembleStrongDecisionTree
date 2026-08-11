@@ -14,6 +14,7 @@ class DatasetConfig:
     base_fraction: float = 0.60
     meta_fraction: float = 0.20
     test_fraction: float = 0.20
+    use_official_test: bool = True
     num_workers: int = 0
     download: bool = True
 

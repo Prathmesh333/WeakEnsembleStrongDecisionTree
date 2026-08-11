@@ -75,6 +75,8 @@ def test_complete_ensemble_layer_runs_on_synthetic_predictions() -> None:
         "soft_vote",
         "weighted_soft_vote",
         "logistic_stack",
+        "rf_soft",
+        "hgb_soft",
         "dt_hard",
         "dt_soft",
         "dt_enhanced",

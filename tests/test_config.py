@@ -8,6 +8,7 @@ from treestack_cnn.config import load_config
 def test_default_config_is_valid() -> None:
     config = load_config()
     assert config.datasets == ["fashion_mnist", "cifar10"]
+    assert config.dataset.use_official_test is True
     assert sum(
         [
             config.dataset.base_fraction,

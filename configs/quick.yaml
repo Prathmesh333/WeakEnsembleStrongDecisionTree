@@ -10,6 +10,7 @@ dataset:
   base_fraction: 0.60
   meta_fraction: 0.20
   test_fraction: 0.20
+  use_official_test: true
   num_workers: 0
   download: true
 
