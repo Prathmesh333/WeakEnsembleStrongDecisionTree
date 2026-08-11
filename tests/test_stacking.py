@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from treestack_cnn.config import TreeConfig
 from treestack_cnn.stacking import (
@@ -24,6 +25,24 @@ def test_meta_feature_dimensions_and_hard_encoding() -> None:
     assert hard.shape == (8, 12)
     assert np.all(hard.reshape(8, 3, 4).sum(axis=2) == 1)
     assert enhanced_features(probabilities).shape == (8, 21)
+
+
+def test_float16_rounded_probabilities_are_renormalized() -> None:
+    probabilities = np.asarray(
+        [
+            [[0.333, 0.333, 0.333]],
+            [[0.251, 0.251, 0.497]],
+        ],
+        dtype=np.float16,
+    )
+    features = soft_features(probabilities).reshape(1, 2, 3)
+    np.testing.assert_allclose(features.sum(axis=2), 1.0, atol=1e-7)
+
+
+def test_badly_unnormalized_probabilities_are_rejected() -> None:
+    probabilities = np.full((2, 3, 4), 0.2, dtype=np.float32)
+    with pytest.raises(ValueError, match="maximum deviation"):
+        soft_features(probabilities)
 
 
 def test_majority_vote_uses_mean_probability_for_three_way_tie() -> None:

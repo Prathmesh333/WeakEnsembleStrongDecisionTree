@@ -196,7 +196,10 @@ def predict_probabilities(
                 enabled=use_mixed_precision and device.type == "cuda",
             ):
                 logits = model(inputs.to(device, non_blocking=True))
-            probability_batches.append(torch.softmax(logits, dim=1).cpu().numpy())
+            # Compute softmax in float32 even when CUDA inference uses float16 autocast.
+            # Casting after a float16 softmax preserves its rounding error and can make
+            # otherwise valid probability rows fail strict normalization checks.
+            probability_batches.append(torch.softmax(logits.float(), dim=1).cpu().numpy())
             label_batches.append(labels.numpy())
     if device.type == "cuda":
         torch.cuda.synchronize(device)

@@ -32,16 +32,27 @@ class EnsembleResult:
 
 
 def _validate_probabilities(probabilities: np.ndarray) -> np.ndarray:
-    values = np.asarray(probabilities)
+    values = np.asarray(probabilities, dtype=np.float32)
     if values.ndim != 3:
         raise ValueError("Probabilities must have shape (models, samples, classes)")
     if values.shape[0] < 2:
         raise ValueError("At least two base models are required")
     if not np.isfinite(values).all():
         raise ValueError("Probabilities contain NaN or infinite values")
-    if not np.allclose(values.sum(axis=2), 1.0, atol=1e-4):
-        raise ValueError("Each model probability vector must sum to one")
-    return values
+    if (values < 0.0).any() or (values > 1.0).any():
+        raise ValueError("Probabilities must be between zero and one")
+    row_sums = values.sum(axis=2, keepdims=True, dtype=np.float32)
+    if (row_sums <= 0.0).any():
+        raise ValueError("Probability vectors must have a positive sum")
+    max_deviation = float(np.max(np.abs(row_sums - 1.0)))
+    if max_deviation > 5e-3:
+        raise ValueError(
+            "Each model probability vector must sum to one "
+            f"(maximum deviation: {max_deviation:.6f})"
+        )
+    # Old mixed-precision Kaggle caches can contain float16-rounded softmax values.
+    # Renormalizing them preserves argmax predictions and avoids retraining the CNNs.
+    return values / row_sums
 
 
 def soft_features(probabilities: np.ndarray) -> np.ndarray:
