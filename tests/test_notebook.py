@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from treestack_cnn.config import TrainingConfig
@@ -21,6 +24,10 @@ def test_kaggle_notebook_is_valid_and_code_cells_compile() -> None:
     assert "import treestack_cnn.cuda_runner" in notebook_source
     assert "pairwise_diversity_analysis" in notebook_source
     assert "Publication-readiness checks" in notebook_source
+    assert "sys.path.insert(0, str(SRC_DIR))" in notebook_source
+    assert 'os.environ["PYTHONPATH"]' in notebook_source
+    assert "env=RUN_ENV" in notebook_source
+    assert 'pip", "install", "-e"' not in notebook_source
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] == "code":
             compile("".join(cell["source"]), f"notebook-cell-{index}", "exec")
@@ -31,6 +38,21 @@ def test_cuda_runner_defaults_target_two_gpus() -> None:
     assert args.dataset == "fashion_mnist"
     assert args.max_gpus == 2
     assert args.num_workers == 1
+
+
+def test_cuda_runner_imports_from_src_without_installing(tmp_path: Path) -> None:
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(Path("src").resolve())
+    completed = subprocess.run(
+        [sys.executable, "-c", "import treestack_cnn.cuda_runner as module; print(module.__file__)"],
+        cwd=tmp_path,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "src" in completed.stdout
+    assert "cuda_runner.py" in completed.stdout
 
 
 def test_model_training_profiles_are_deliberately_different() -> None:

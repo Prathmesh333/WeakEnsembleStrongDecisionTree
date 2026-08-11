@@ -38,6 +38,8 @@ pytest
 
 Open [the Kaggle/Colab notebook](notebooks/treestack_kaggle_colab.ipynb) and select Kaggle's `GPU T4 x2` accelerator. The notebook clones this repository, checks both CUDA devices and runs the full leakage-free pipeline.
 
+Run the notebook cells in order. The activation cell adds the repository's `src` directory to the current kernel and to each child process. It does not require an editable package installation or a kernel restart. If an older notebook reports `No module named 'treestack_cnn'`, open the latest notebook revision and rerun from the activation cell.
+
 Two CNNs train concurrently, one per GPU. When either finishes, the third takes its place. This is independent-model parallelism rather than data parallelism: each network keeps its own optimizer, random seed and checkpoint. Automatic mixed precision reduces T4 memory use and speeds up convolution training.
 
 The ensemble is deliberately heterogeneous. Its members differ in depth, width, residual connections, batch normalization, dropout, optimizer, learning rate, weight decay, label smoothing and initialization seed. The notebook reports pairwise prediction disagreement, double-fault rates and oracle accuracy to verify that these design differences create useful error diversity. Diversity does not guarantee freedom from overfitting, so every CNN still uses an isolated validation split, early stopping and train-versus-validation convergence checks.
